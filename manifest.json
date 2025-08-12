@@ -1,10 +1,11 @@
 {
   "name": "Spartans versus Xerxes",
   "short_name": "Spartans vs Xerxes",
-  "start_url": ".?v=2",
+  "start_url": ".?v=3",
   "display": "standalone",
   "background_color": "#0f1115",
   "theme_color": "#0f1115",
+  "orientation": "landscape",
   "icons": [
     {
       "src": "icon.png",

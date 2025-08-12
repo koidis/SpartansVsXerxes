@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Spartans versus Xerxes</title>
 <meta name="theme-color" content="#0f1115">
-<link rel="manifest" href="manifest.json?v=2">
+<link rel="manifest" href="manifest.json?v=3">
 <link rel="apple-touch-icon" href="icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -16,6 +16,7 @@
   #overlay{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.6);z-index:9999;pointer-events:auto}
   .btn{display:inline-block;padding:12px 20px;border-radius:12px;background:#12a150;box-shadow:0 8px 20px rgba(0,0,0,.3);cursor:pointer}
   .hint{font-size:14px;opacity:.85}
+  #orient{position:fixed;left:50%;top:10px;transform:translateX(-50%);background:#e11d48;color:#fff;padding:6px 10px;border-radius:8px;display:none;z-index:10000;font-size:14px}
 </style>
 </head>
 <body>
@@ -24,13 +25,13 @@
   <img src="icon.png" alt="" style="width:84px;height:84px;border-radius:18px;box-shadow:0 6px 16px rgba(0,0,0,.35)"><br>
   <h1 style="margin:.2em 0">Spartans versus Xerxes</h1>
   <div class="hint">Αριστερό στικ: Κίνηση • FIRE: Πυροβολισμός • CLOAK: Αορατότητα</div>
-  <p>Πάτα <b>START</b> για να αρχίσει</p>
+  <p>Πάτα <b>START</b> για να αρχίσει (καλύτερα σε landscape)</p>
   <div id="start" class="btn" role="button" tabindex="0" aria-label="Start Game">START</div>
   <p class="hint" style="margin-top:10px">Tip: “Add to Home Screen” για app‑like εμπειρία.</p>
 </div>
+<div id="orient">Rotate your phone to landscape</div>
 <script>
-// SW with version bump so iOS doesn't keep an old cache
-if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.register('./service-worker.js?v=2'); }); }
+if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.register('./service-worker.js?v=3'); }); }
 </script>
 <script>
 (()=>{
@@ -38,18 +39,60 @@ if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigato
 const DPR = Math.max(1, Math.min(3, window.devicePixelRatio||1));
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-function resize(){ const w=innerWidth, h=innerHeight; canvas.width=Math.floor(w*DPR); canvas.height=Math.floor(h*DPR); canvas.style.width=w+'px'; canvas.style.height=h+'px'; }
-addEventListener('resize', resize); resize();
-let state='MENU';
 const overlay = document.getElementById('overlay');
 const startBtn = document.getElementById('start');
-function beginGame(){ if(state!=='GAME'){ state='GAME'; overlay.style.display='none'; } }
-// Robust start handlers for iOS
+const orientBanner = document.getElementById('orient');
+
+function resize(){ const w=innerWidth, h=innerHeight; canvas.width=Math.floor(w*DPR); canvas.height=Math.floor(h*DPR); canvas.style.width=w+'px'; canvas.style.height=h+'px'; }
+addEventListener('resize', resize); resize();
+
+let state='MENU';
+
+function hapticStart(){
+  try{
+    if(navigator.vibrate) navigator.vibrate(20);
+    else {
+      const ac = new (window.AudioContext||window.webkitAudioContext)();
+      const o = ac.createOscillator(); const g = ac.createGain();
+      o.frequency.value = 120; g.gain.setValueAtTime(0.001, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.05, ac.currentTime+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime+0.06);
+      o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime+0.07);
+      setTimeout(()=>ac.close(),120);
+    }
+  }catch(e){}
+}
+
+async function lockLandscape(){
+  try{
+    if(screen.orientation && screen.orientation.lock){
+      await screen.orientation.lock('landscape');
+    }
+  }catch(e){ /* ignore, iOS Safari may not allow unless installed */ }
+}
+
+function checkOrientationBanner(){
+  const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+  orientBanner.style.display = isPortrait ? 'block' : 'none';
+}
+
+function beginGame(){
+  if(state!=='GAME'){
+    state='GAME';
+    overlay.style.display='none';
+    hapticStart();      // haptic ONLY on START
+    lockLandscape();    // try lock to landscape
+    checkOrientationBanner();
+  }
+}
+
 startBtn.addEventListener('click', beginGame, {passive:true});
 startBtn.addEventListener('touchstart', (e)=>{ e.preventDefault(); beginGame(); }, {passive:false});
 overlay.addEventListener('touchstart', (e)=>{ if(e.target===overlay){ e.preventDefault(); beginGame(); } }, {passive:false});
 document.addEventListener('keydown', (e)=>{ if(state==='MENU' && (e.key==='Enter'||e.key===' ')) beginGame(); }, {passive:true});
 document.addEventListener('pointerdown', ()=>{ if(state==='MENU') beginGame(); }, {passive:true});
+window.addEventListener('orientationchange', checkOrientationBanner);
+checkOrientationBanner();
 
 const WORLD_W=20000, WORLD_H=20000;
 const ARENA_SIZE=900, ARENA_X=WORLD_W/2-ARENA_SIZE/2, ARENA_Y=WORLD_H/2-ARENA_SIZE/2;
@@ -64,7 +107,6 @@ let camera={x:player.x-canvas.width/2, y:player.y-canvas.height/2};
 let bullets=[], enemies=[], spawnTimer=0;
 const boss={x:THRONE_X, y:THRONE_Y, hits:0, alive:true};
 const keys=new Set();
-
 const UI={ ls:{id:null,active:false,cx:120,cy:innerHeight-120,r:90,dx:0,dy:0}, fire:{id:null,x:innerWidth-110,y:innerHeight-260,r:56,down:false}, cloak:{id:null,x:innerWidth-240,y:innerHeight-120,r:46,down:false} };
 function layoutUI(){ UI.ls.cx=100; UI.ls.cy=innerHeight-110; UI.ls.r=90; UI.fire.x=innerWidth-110; UI.fire.y=innerHeight-260; UI.cloak.x=innerWidth-240; UI.cloak.y=innerHeight-120; }
 addEventListener('resize', layoutUI); layoutUI();
@@ -184,22 +226,14 @@ function draw(){
   ctx.fillStyle='#11131a'; ctx.fillRect(0,0,w,h);
   const x0=Math.floor(camera.x/ts)*ts - camera.x, y0=Math.floor(camera.y/ts)*ts - camera.y;
   for(let y=y0; y<h; y+=ts){ for(let x=x0; x<w; x+=ts){ ctx.fillStyle='#141a28'; ctx.fillRect(x,y,ts,ts); ctx.strokeStyle='rgba(255,255,255,0.02)'; ctx.strokeRect(x,y,ts,ts); }}
-  const ARENA_SIZE=900, ARENA_X=WORLD_W/2-ARENA_SIZE/2, ARENA_Y=WORLD_H/2-ARENA_SIZE/2;
-  const THRONE_X=WORLD_W/2, THRONE_Y=ARENA_Y+180;
   const ax=ARENA_X-camera.x, ay=ARENA_Y-camera.y; ctx.fillStyle='#242838'; ctx.fillRect(ax,ay,ARENA_SIZE,ARENA_SIZE);
   ctx.fillStyle='#3a2c22'; ctx.fillRect(THRONE_X-80-camera.x, THRONE_Y-40-camera.y, 160, 80);
   ctx.fillStyle='#5a4638'; ctx.fillRect(THRONE_X-60-camera.x, THRONE_Y-70-camera.y, 120, 30);
   ctx.fillStyle='#6ba3ff'; for(const en of enemies){ dot(en.x-camera.x, en.y-camera.y, 16*DPR); }
-  // boss
-  const bossAlive = boss.alive;
-  if(bossAlive){ ctx.fillStyle='#ffd166'; dot(boss.x-camera.x, boss.y-camera.y, 20*DPR); }
-  // bullets
+  if(boss.alive){ ctx.fillStyle='#ffd166'; dot(boss.x-camera.x, boss.y-camera.y, 20*DPR); }
   ctx.fillStyle='#eaeaea'; for(const b of bullets){ dot(b.x-camera.x, b.y-camera.y, 3*DPR); }
-  // player
   ctx.save(); ctx.globalAlpha = player.cloak ? 0.35 : 1; ctx.fillStyle='#34d399'; dot(player.x-camera.x, player.y-camera.y, 18*DPR); ctx.globalAlpha=1; ctx.restore();
-  // aim
   ctx.strokeStyle='#000'; ctx.lineWidth=4*DPR; ctx.beginPath(); ctx.moveTo(player.x-camera.x, player.y-camera.y); ctx.lineTo(player.x-camera.x+Math.cos(player.aim)*28, player.y-camera.y+Math.sin(player.aim)*28); ctx.stroke();
-  // HUD & controls
   hud(); controls(); minimap();
 }
 
@@ -212,7 +246,17 @@ function knob(x,y,r,fill){ ctx.fillStyle=fill; ctx.beginPath(); ctx.arc(x*DPR,y*
 function circle(x,y,r,fill){ ctx.fillStyle=fill; ctx.beginPath(); ctx.arc(x*DPR,y*DPR,r*DPR,0,Math.PI*2); ctx.fill(); }
 function label(text,x,y){ ctx.fillStyle='#fff'; ctx.font=(13*DPR)+'px system-ui, sans-serif'; ctx.textAlign='center'; ctx.fillText(text, x*DPR, y*DPR); }
 
-function minimap(){ const mw=180*DPR, mh=120*DPR, mx=canvas.width-mw-12*DPR, my=12*DPR; ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(mx,my,mw,mh); const sx=mw/WORLD_W, sy=mh/WORLD_H; ctx.fillStyle='#394765'; ctx.fillRect(mx+ARENA_X*sx, my+ARENA_Y*sy, ARENA_SIZE*sx, ARENA_SIZE*sy); if(boss.alive){ ctx.fillStyle='#ffd166'; ctx.fillRect(mx+boss.x*sx-2, my+boss.y*sy-2, 4,4);} ctx.fillStyle='#6ba3ff'; for(const en of enemies){ ctx.fillRect(mx+en.x*sx, my+en.y*sy, 2,2);} ctx.fillStyle='#34d399'; ctx.fillRect(mx+player.x*sx-2, my+player.y*sy-2, 4,4); }
+// Minimap: center bottom
+function minimap(){
+  const mw=220*DPR, mh=130*DPR;
+  const mx=(canvas.width - mw)/2, my=canvas.height - mh - 12*DPR;
+  ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(mx,my,mw,mh);
+  const sx=mw/WORLD_W, sy=mh/WORLD_H;
+  ctx.fillStyle='#394765'; ctx.fillRect(mx+ARENA_X*sx, my+ARENA_Y*sy, ARENA_SIZE*sx, ARENA_SIZE*sy);
+  if(boss.alive){ ctx.fillStyle='#ffd166'; ctx.fillRect(mx+boss.x*sx-2, my+boss.y*sy-2, 4,4); }
+  ctx.fillStyle='#6ba3ff'; for(const en of enemies){ ctx.fillRect(mx+en.x*sx, my+en.y*sy, 2,2); }
+  ctx.fillStyle='#34d399'; ctx.fillRect(mx+player.x*sx-2, my+player.y*sy-2, 4,4);
+}
 
 let bullets=[];
 function shoot(){ const w=WEAPONS[player.weapon]; if(player.cd>0) return; player.cd=w.cooldown; for(let i=0;i<w.pellets;i++){ const spread=(Math.random()*2-1)*w.spread*Math.PI/180, a=player.aim+spread; bullets.push({x:player.x+Math.cos(player.aim)*18,y:player.y+Math.sin(player.aim)*18,vx:Math.cos(a)*w.speed,vy:Math.sin(a)*w.speed,dmg:w.damage,ttl:1.5,dead:false}); } }
